@@ -5,7 +5,8 @@
 //
 ////////////////////////////////////////////////////////////////////////////////////
 
-
+#include <windows.networking.h>
+#pragma comment(lib, "Ws2_32.lib")
 #include <iostream>
 #include <vector>
 #include "vgl.h"
@@ -29,17 +30,17 @@ enum GameObject_Type {
 
 struct GameObject {
 
-	glm::vec3 location;
-	glm::vec3 rotation;
-	glm::vec3 scale;
-	glm::vec3 moving_direction;
-	GLfloat velocity;
-	GLfloat collider_dimension; //We use box as wrapper with radius = 0.9 * scale of the object Note: 0.9 is the original dimension of the boxes we generate
-	int living_time;
-	int life_span;		//In this code, the life span for obstacles is set to a negative value (Just so that they remain in the scene during the game)
-	int type;
-	bool isAlive;
-	bool isCollided;
+	glm::vec3 location{};
+	glm::vec3 rotation{};
+	glm::vec3 scale{};
+	glm::vec3 moving_direction{};
+	GLfloat velocity{};
+	GLfloat collider_dimension{}; //We use box as wrapper with radius = 0.9 * scale of the object Note: 0.9 is the original dimension of the boxes we generate
+	int living_time{};
+	int life_span{};		//In this code, the life span for obstacles is set to a negative value (Just so that they remain in the scene during the game)
+	int type{};
+	bool isAlive{};
+	bool isCollided{};
 
 };
 //End of fragment added
@@ -90,7 +91,12 @@ int deltaTime;
 const int Num_Obstacles = 1;
 float obstacle_data[Num_Obstacles][3];
 
-
+// ADDED BY YOUSEF
+constexpr char* CLIENT_NAME = "Yousef";
+Player this_player(Location(), CLIENT_NAME);
+std::vector<Player*> other_players{};
+SOCKET ClientSocket{};
+// END OF ADDITION BY YOUSEF
 std::vector<GameObject> sceneGraph;
 
 void addPlayer(float x, float y);
@@ -339,8 +345,8 @@ bool isColliding(GameObject one, GameObject two) {
 //When collided, the .isCollided property of the game object is set to true
 void checkCollisions() {
 
-	for (int i = 0; i < sceneGraph.size(); i++) {
-		for (int j = 0; j < sceneGraph.size(); j++) {
+	for (int i = 0u; i < sceneGraph.size(); i++) {
+		for (int j = 0u; j < sceneGraph.size(); j++) {
 			if (i != j && /*if i=j then it means that we are checking self-collilsion. We do NOT consider self-collision as a collision*/
 				sceneGraph[i].isAlive && 
 				sceneGraph[j].isAlive && 
@@ -611,14 +617,66 @@ int main(int argc, char** argv)
 //To be added by Students
 void networkInitialize()
 {
+	// starts Winsock DLLs
+	WSADATA wsaData;
+	if ((WSAStartup(MAKEWORD(2, 2), &wsaData)) != 0)
+		return;
 
+	// initializes socket. SOCK_STREAM: TCP
+	ClientSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+	if (ClientSocket == INVALID_SOCKET)
+	{
+		WSACleanup();
+		return;
+	}
+
+	// Connect socket to specified server
+	sockaddr_in SvrAddr{};
+	SvrAddr.sin_family = AF_INET;						// Address family type itnernet
+	SvrAddr.sin_port = htons(27000);					// port (host to network conversion)
+	SvrAddr.sin_addr.s_addr = inet_addr("127.0.0.1");	// IP address
+	if ((connect(ClientSocket, (struct sockaddr*)&SvrAddr, sizeof(SvrAddr))) == SOCKET_ERROR)
+	{
+		closesocket(ClientSocket);
+		WSACleanup();
+		return;
+	}
 }
 
 void refresh_screen() //This function gets called for every frame of the game (after every screen refresh)
 {
-
-	addPlayer(1.0f, 1.0f);
-	addPlayer(-2.0f, -2.0f);
+	this_player.location.x = cam_pos.x; this_player.location.y = cam_pos.y; this_player.location.z = cam_pos.z;
+	SerializedPlayer sp = SerializedPlayer::player_serializer(this_player);
+	send(ClientSocket, *sp.data, sp.size, 0);
+	char s[1]{};
+	recv(ClientSocket, s, 1, 0);
+	size_t data_size = std::strtol(s, NULL, 10);
+	send(ClientSocket, "ack", 3, 0);
+	std::unique_ptr<char*> recv_buffer = std::make_unique<char*>(new char[data_size * sizeof(Player)]{});
+	recv(ClientSocket, *recv_buffer, data_size * sizeof(Player), 0);
+	for (int i = 0; i < data_size; i++)
+	{
+		if (std::strlen(*recv_buffer) > 0)
+		{
+			Player recv_player = SerializedPlayer::player_deserializer(*recv_buffer);
+			auto& const name = recv_player.name;
+			auto found = std::find_if(other_players.begin(), other_players.end(), [&name](const Player* player)
+				{
+					return name == player->name;
+				});
+			if (found != other_players.cend())
+			{
+				(**found).location.update_loc(recv_player.location.x, recv_player.location.y, recv_player.location.z);
+				printPlayerInfo(*found);
+			}
+			else
+			{
+				other_players.push_back(&recv_player);
+				addPlayer(recv_player.location.x, recv_player.location.y);
+			}
+			*recv_buffer += sizeof(Player);
+		}
+	}
 	
 	//Your task here is to receive the data from the server about the locations of all players. Note: Set the coordinates between [-10, 10] for x and y
 	//loop for each player p received from server
