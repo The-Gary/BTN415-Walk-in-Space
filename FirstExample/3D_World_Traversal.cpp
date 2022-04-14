@@ -5,17 +5,19 @@
 //
 ////////////////////////////////////////////////////////////////////////////////////
 
-using namespace std;
 
+#include <iostream>
+#include <vector>
 #include "vgl.h"
 #include "LoadShaders.h"
 #include "glm\glm.hpp"
 #include "glm\gtc\matrix_transform.hpp"
 #include "glm\gtx\rotate_vector.hpp"
 #include "..\SOIL\src\SOIL.h"
-#include <vector>
-#include <iostream>
+#include "Player.h"
+#include "PlayerSerializer.h"
 
+using namespace sdds;
 
 //Added on Nov. 21 2021 by: Alireza Moghaddam
 enum GameObject_Type {
@@ -318,8 +320,8 @@ void drawCube(glm::vec3 scale)
 bool isColliding(GameObject one, GameObject two) {
 	bool result = false;
 	
-	cout << one.scale.x << ", " << one.collider_dimension << ", " << two.scale.x << ", " << two.collider_dimension << endl;
-	cout << glm::abs(one.location.x - two.location.x) << ", " << glm::abs(one.location.y - two.location.x) << endl;
+	std::cout << one.scale.x << ", " << one.collider_dimension << ", " << two.scale.x << ", " << two.collider_dimension << std::endl;
+	std::cout << glm::abs(one.location.x - two.location.x) << ", " << glm::abs(one.location.y - two.location.x) << std::endl;
 
 	bool cond = glm::abs(one.location.x - two.location.x) <= (one.collider_dimension/2 + two.collider_dimension/2) &&
 				glm::abs(one.location.y - two.location.y) <= (one.collider_dimension/2 + two.collider_dimension/2);
