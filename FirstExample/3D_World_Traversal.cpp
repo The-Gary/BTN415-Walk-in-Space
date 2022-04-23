@@ -9,6 +9,7 @@
 #pragma comment(lib, "Ws2_32.lib")
 #include <iostream>
 #include <vector>
+#include <thread>
 #include "vgl.h"
 #include "LoadShaders.h"
 #include "glm\glm.hpp"
@@ -90,13 +91,6 @@ int deltaTime;
 //Creating and rendering bunch of objects on the scene to interact with
 const int Num_Obstacles = 1;
 float obstacle_data[Num_Obstacles][3];
-
-// ADDED BY YOUSEF
-constexpr char* CLIENT_NAME = "Yousef";
-Player this_player(Location(), CLIENT_NAME);
-std::vector<Player*> other_players{};
-SOCKET ClientSocket{};
-// END OF ADDITION BY YOUSEF
 std::vector<GameObject> sceneGraph;
 
 void addPlayer(float x, float y);
@@ -612,9 +606,60 @@ int main(int argc, char** argv)
 /**************************Networking Code**********************/
 /***************************************************************/
 /***************************************************************/
-
+// ADDED BY YOUSEF
+constexpr char* CLIENT_NAME = "Yousef";
+Player this_player(Location(), CLIENT_NAME);
+std::vector<Player*> other_players{};
+SOCKET ClientSocket{};
 //Add your network initialization code here
 //To be added by Students
+void handle_communication()
+{
+	SerializedPlayer sp{};
+	size_t data_size{};
+	std::unique_ptr<char*> recv_buffer{};
+	Player recv_player{};
+	do
+	{
+		this_player.location.x = cam_pos.x; this_player.location.y = cam_pos.y; this_player.location.z = cam_pos.z;
+		sp = SerializedPlayer::player_serializer(this_player);
+		send(ClientSocket, *sp.data, sp.size, 0);
+		char s[1]{};
+		recv(ClientSocket, s, 1, 0);
+		data_size = std::strtol(s, NULL, 10);
+		send(ClientSocket, "ack", 3, 0);
+		recv_buffer = std::make_unique<char*>(new char[data_size * sizeof(Player)]{});
+		recv(ClientSocket, *recv_buffer, data_size * sizeof(Player), 0);
+		for (int i = 0; i < data_size; i++)
+		{
+			if (std::strlen(*recv_buffer) > 0)
+			{
+				recv_player = SerializedPlayer::player_deserializer(*recv_buffer);
+				auto& const name = recv_player.name;
+				auto found = std::find_if(other_players.begin(), other_players.end(), [&name](const Player* player)
+					{
+						return name == player->name;
+					});
+				if (found != other_players.cend())
+				{
+					(**found).location.update_loc(recv_player.location.x, recv_player.location.y, recv_player.location.z);
+					printPlayerInfo(*found);
+				}
+				else
+				{
+					other_players.push_back(&recv_player);
+					printPlayerInfo(&recv_player);
+					addPlayer(recv_player.location.x, recv_player.location.y);
+				}
+				*recv_buffer += sizeof(Player);
+			}
+		}
+		std::this_thread::sleep_for(std::chrono::milliseconds(500));
+	}
+	while (true);
+}
+
+
 void networkInitialize()
 {
 	// starts Winsock DLLs
@@ -641,48 +686,17 @@ void networkInitialize()
 		WSACleanup();
 		return;
 	}
+
+	std::thread comm_thread(handle_communication);
+	comm_thread.detach();
 }
 
 void refresh_screen() //This function gets called for every frame of the game (after every screen refresh)
 {
-	this_player.location.x = cam_pos.x; this_player.location.y = cam_pos.y; this_player.location.z = cam_pos.z;
-	SerializedPlayer sp = SerializedPlayer::player_serializer(this_player);
-	send(ClientSocket, *sp.data, sp.size, 0);
-	char s[1]{};
-	recv(ClientSocket, s, 1, 0);
-	size_t data_size = std::strtol(s, NULL, 10);
-	send(ClientSocket, "ack", 3, 0);
-	std::unique_ptr<char*> recv_buffer = std::make_unique<char*>(new char[data_size * sizeof(Player)]{});
-	recv(ClientSocket, *recv_buffer, data_size * sizeof(Player), 0);
-	for (int i = 0; i < data_size; i++)
+	for (const Player* player : other_players)
 	{
-		if (std::strlen(*recv_buffer) > 0)
-		{
-			Player recv_player = SerializedPlayer::player_deserializer(*recv_buffer);
-			auto& const name = recv_player.name;
-			auto found = std::find_if(other_players.begin(), other_players.end(), [&name](const Player* player)
-				{
-					return name == player->name;
-				});
-			if (found != other_players.cend())
-			{
-				(**found).location.update_loc(recv_player.location.x, recv_player.location.y, recv_player.location.z);
-				printPlayerInfo(*found);
-			}
-			else
-			{
-				other_players.push_back(&recv_player);
-				addPlayer(recv_player.location.x, recv_player.location.y);
-			}
-			*recv_buffer += sizeof(Player);
-		}
-	}
-	
-	//Your task here is to receive the data from the server about the locations of all players. Note: Set the coordinates between [-10, 10] for x and y
-	//loop for each player p received from server
-	//addPlayer(p.x, p.y)
-
-	//You will need to transmit your location to the server frequently. Your location can be obtained by: (cam_pos.x, cam_pos.y)
+		printPlayerInfo(player);
+	};
 }
 
 
